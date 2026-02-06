@@ -1,9 +1,13 @@
 package com.example.lab5_starter;
 
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.ListView;
+
+// CHANGED: added for delete dialog
+import android.app.AlertDialog;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
@@ -11,9 +15,15 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.google.firebase.firestore.CollectionReference;
+import com.google.firebase.firestore.DocumentReference;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QueryDocumentSnapshot;
+
 import java.util.ArrayList;
 
-public class MainActivity extends AppCompatActivity implements CityDialogFragment.CityDialogListener {
+public class MainActivity extends AppCompatActivity
+        implements CityDialogFragment.CityDialogListener {
 
     private Button addCityButton;
     private ListView cityListView;
@@ -21,40 +31,86 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
     private ArrayList<City> cityArrayList;
     private ArrayAdapter<City> cityArrayAdapter;
 
+    private FirebaseFirestore db;
+    private CollectionReference citiesRef;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_main);
+
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
 
+        db = FirebaseFirestore.getInstance();
+        citiesRef = db.collection("Cities");
+
+        citiesRef.addSnapshotListener((value, error) -> {
+            if (error != null) {
+                Log.e("Firestore", error.toString());
+            }
+            if (value != null) {
+                cityArrayList.clear();
+                for (QueryDocumentSnapshot snapshot : value) {
+                    String name = snapshot.getString("name");
+                    String province = snapshot.getString("province");
+                    cityArrayList.add(new City(name, province));
+                }
+                cityArrayAdapter.notifyDataSetChanged();
+            }
+        });
+
         // Set views
         addCityButton = findViewById(R.id.buttonAddCity);
         cityListView = findViewById(R.id.listviewCities);
+
+        // get delete button
+        Button deleteCityButton = findViewById(R.id.buttonDeleteCity);
 
         // create city array
         cityArrayList = new ArrayList<>();
         cityArrayAdapter = new CityArrayAdapter(this, cityArrayList);
         cityListView.setAdapter(cityArrayAdapter);
 
-        addDummyData();
-
         // set listeners
         addCityButton.setOnClickListener(view -> {
             CityDialogFragment cityDialogFragment = new CityDialogFragment();
-            cityDialogFragment.show(getSupportFragmentManager(),"Add City");
+            cityDialogFragment.show(getSupportFragmentManager(), "Add City");
         });
 
+        // clicking a city still opens edit dialog
         cityListView.setOnItemClickListener((adapterView, view, i, l) -> {
             City city = cityArrayAdapter.getItem(i);
-            CityDialogFragment cityDialogFragment = CityDialogFragment.newInstance(city);
-            cityDialogFragment.show(getSupportFragmentManager(),"City Details");
+            CityDialogFragment cityDialogFragment =
+                    CityDialogFragment.newInstance(city);
+            cityDialogFragment.show(getSupportFragmentManager(), "City Details");
         });
 
+        // delete logic via dialog selection
+        deleteCityButton.setOnClickListener(view -> {
+            if (cityArrayList.isEmpty()) {
+                return;
+            }
+
+            String[] cityNames = new String[cityArrayList.size()];
+            for (int i = 0; i < cityArrayList.size(); i++) {
+                cityNames[i] = cityArrayList.get(i).getName();
+            }
+
+            AlertDialog.Builder builder = new AlertDialog.Builder(this);
+            builder.setTitle("Delete which city?");
+            builder.setItems(cityNames, (dialog, which) -> {
+                City cityToDelete = cityArrayList.get(which);
+                citiesRef
+                        .document(cityToDelete.getName())
+                        .delete();
+            });
+            builder.show();
+        });
     }
 
     @Override
@@ -67,13 +123,15 @@ public class MainActivity extends AppCompatActivity implements CityDialogFragmen
     }
 
     @Override
-    public void addCity(City city){
+    public void addCity(City city) {
         cityArrayList.add(city);
         cityArrayAdapter.notifyDataSetChanged();
 
+        DocumentReference docRef = citiesRef.document(city.getName());
+        docRef.set(city);
     }
 
-    public void addDummyData(){
+    public void addDummyData() {
         City m1 = new City("Edmonton", "AB");
         City m2 = new City("Vancouver", "BC");
         cityArrayList.add(m1);
